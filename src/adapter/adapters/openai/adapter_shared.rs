@@ -17,7 +17,28 @@ use value_ext::JsonValueExt;
 
 fn insert_openai_reasoning_effort(payload: &mut Value, effort: &ReasoningEffort) -> Result<()> {
 	let keyword = match effort {
-		ReasoningEffort::None => "none",
+		ReasoningEffort::None => {
+			// vllm/ llama-serve / llama.cpp expects extra_body.chat_template_kwargs.enable_thinking
+			// to disable thinking; OpenAI ignores unknown top-level fields.
+			payload.x_insert(
+				"extra_body",
+				json!({"chat_template_kwargs": { "enable_thinking": false } }),
+			)?;
+			payload.x_insert(
+				"thinking_budget_tokens",
+				0,
+			)?;
+			payload.x_insert(
+				"thinking_token_budget",
+				0,
+			)?;
+            // This is for ollama
+			payload.x_insert(
+				"thinking",
+				false
+			)?;
+			"none"
+		}
 		ReasoningEffort::Low => "low",
 		ReasoningEffort::Medium => "medium",
 		ReasoningEffort::High => "high",
