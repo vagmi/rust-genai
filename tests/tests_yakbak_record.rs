@@ -162,6 +162,46 @@ async fn record_gemini_thinking_stream() -> TestResult<()> {
 	Ok(())
 }
 
+#[tokio::test]
+#[ignore]
+async fn record_gemini_tool_stream() -> TestResult<()> {
+	let (client, mut server) = record_client("gemini", "tool_stream", &gemini_backend()).await?;
+
+	// Use a more directive prompt than the shared seed so gemini-2.5-flash actually
+	// invokes the tool instead of asking a follow-up question.
+	let chat_req = ChatRequest::new(vec![
+		ChatMessage::system("You MUST use the get_weather tool to answer weather questions. Do not answer from prior knowledge."),
+		ChatMessage::user("Use the get_weather tool to fetch the current weather for Paris, France in Celsius."),
+	])
+	.append_tool(Tool::new("get_weather").with_schema(json!({
+		"type": "object",
+		"properties": {
+			"city": { "type": "string", "description": "The city name" },
+			"country": { "type": "string", "description": "The country" },
+			"unit": { "type": "string", "enum": ["C", "F"], "description": "Temperature unit" }
+		},
+		"required": ["city", "country", "unit"],
+	})));
+
+	let options = ChatOptions::default()
+		.with_capture_content(true)
+		.with_capture_tool_calls(true)
+		.with_capture_usage(true);
+
+	let stream_res = client.exec_chat_stream(GEMINI_MODEL, chat_req, Some(&options)).await?;
+	let extract = extract_stream_end(stream_res.stream).await?;
+	let tool_calls = &extract.stream_end.captured_tool_calls();
+	eprintln!("[record] Tool calls: {:?}", tool_calls.as_ref().map(|tc| tc.len()));
+	if let Some(calls) = tool_calls.as_ref() {
+		for tc in calls.iter() {
+			eprintln!("  - {} {}", tc.fn_name, tc.fn_arguments);
+		}
+	}
+
+	server.shutdown().await;
+	Ok(())
+}
+
 fn github_copilot_backend() -> String {
 	std::env::var("GITHUB_COPILOT_BASE_URL").unwrap_or_else(|_| "https://models.github.ai/inference/".to_string())
 }
