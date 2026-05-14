@@ -11,6 +11,7 @@ use crate::webc::{EventSourceStream, WebResponse};
 use crate::{Error, Headers, ModelIden, Result, ServiceTarget};
 use reqwest::RequestBuilder;
 use serde_json::{Value, json};
+use tracing::info;
 use value_ext::JsonValueExt;
 
 pub struct GeminiAdapter;
@@ -291,6 +292,7 @@ impl GeminiAdapter {
 		let parts = match body.x_take::<Vec<Value>>("/candidates/0/content/parts") {
 			Ok(parts) => parts,
 			Err(_) => {
+                info!("Cannot take content part. Body {}", body);
 				let finish_reason = body
 					.x_remove::<String>("/candidates/0/finishReason")
 					.ok()
@@ -299,22 +301,11 @@ impl GeminiAdapter {
 
 				// Gemini streaming sends a final frame with finishReason + usageMetadata
 				// but no content.parts. This is normal — return Ok with empty content.
-				if saw_usage_only_tail {
-					return Ok(GeminiChatResponse {
-						content,
-						usage,
-						stop_reason: finish_reason,
-					});
-				}
-
-				let body = json!({
-					"finishReason": finish_reason,
-					"usageMetadata": Value::Null,
-				});
-				return Err(Error::ChatResponse {
-					model_iden: model_iden.clone(),
-					body,
-				});
+                return Ok(GeminiChatResponse {
+                    content,
+                    usage,
+                    stop_reason: finish_reason,
+                });
 			}
 		};
 
